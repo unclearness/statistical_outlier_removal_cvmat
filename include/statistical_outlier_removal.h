@@ -80,7 +80,7 @@ inline bool StatisticalOutlierRemoval(const cv::Mat3f& point_cloud,
 
   *outlier_mask = cv::Mat1b::zeros(point_cloud.size());
   // The arrays to be used
-  std::vector<float> distances(point_cloud.cols * point_cloud.rows, -1.0);
+  std::vector<float> distances(point_cloud.cols * point_cloud.rows, 0.0f);
   const int hk = nn_kernel_size / 2;
   if (valid_neighbor_num_th < 0) {
     // 25% of inside kernel
