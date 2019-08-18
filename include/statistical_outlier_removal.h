@@ -171,3 +171,150 @@ inline bool StatisticalOutlierRemoval(const cv::Mat3f& point_cloud,
 
   return true;
 }
+
+template <typename T>
+T norm(const T* a, const T* b) {
+  return static_cast<T>(sqrt((a[0] - b[0]) * (a[0] - b[0]) +
+                             (a[1] - b[1]) * (a[1] - b[1]) +
+                             (a[2] - b[2]) * (a[2] - b[2])));
+}
+
+inline void Depth2PointCloud(const float* depth, int width, int height,
+                             float fx, float fy, float cx, float cy,
+                             float* point_cloud) {
+  std::memset(point_cloud, 0, width * height * 3);
+
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(dynamic, 1)
+#endif
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      int base_index = x + y * width;
+      const float& d = depth[base_index];
+      if (d < std::numeric_limits<float>::min()) {
+        continue;
+      }
+
+      point_cloud[base_index * 3 + 0] = (x - cx) * d / fx;
+      point_cloud[base_index * 3 + 1] = (y - cy) * d / fy;
+      point_cloud[base_index * 3 + 2] = d;
+    }
+  }
+}
+
+inline bool StatisticalOutlierRemoval(const float* point_cloud, int width,
+                                      int height, unsigned char* outlier_mask,
+                                      float* distance_map, double* mean,
+                                      double* stddev, int nn_kernel_size = 5,
+                                      int valid_neighbor_num_th = -1,
+                                      double std_mul = 1.0) {
+  if (nn_kernel_size < 0 || std_mul < 0) {
+    return false;
+  }
+
+  std::memset(outlier_mask, 0, sizeof(unsigned char) * width * height);
+  // The arrays to be used
+  std::vector<float> distances(width * height, 0.0f);
+  const int hk = nn_kernel_size / 2;
+  if (valid_neighbor_num_th < 0) {
+    // 25% of inside kernel
+    valid_neighbor_num_th = nn_kernel_size * nn_kernel_size / 4;
+  }
+
+  constexpr float e = std::numeric_limits<float>::epsilon();
+
+  // First pass: Compute the mean distances for all points with respect to their
+  // k nearest neighbors
+  int valid_distances = 0;
+  for (int j = hk; j < height - hk; j++) {
+    for (int i = hk; i < width - hk; i++) {
+      int index = i + j * width;
+      if (point_cloud[index * 3 + 2] < e) {
+        // no outlier mask on invalid depth pixels
+        continue;
+      }
+
+      // Calculate the mean distance to its neighbors
+      double dist_sum = 0.0;
+      int valid_distances_in = 0;
+      for (int jj = j - hk; jj < j + hk; jj++) {
+        for (int ii = i - hk; ii < i + hk; ii++) {
+          if (ii == 0 && jj == 0) {
+            continue;
+          }
+          int index_in = ii + jj * width;
+          if (point_cloud[index_in * 3 + 2] < e) {
+            continue;
+          }
+
+          dist_sum +=
+              norm(&(point_cloud[index * 3]), &(point_cloud[index_in * 3]));
+          valid_distances_in++;
+        }
+      }
+
+      // outlier condition 1: #valid pixels is smaller than threshold
+      if (valid_distances_in < valid_neighbor_num_th) {
+        outlier_mask[index] = 255;
+        continue;
+      }
+
+      distances[index] = static_cast<float>(dist_sum / valid_distances_in);
+      valid_distances++;
+    }
+  }
+
+  std::memcpy(distance_map, distances.data(), sizeof(float) * distances.size());
+
+  // Estimate the mean and the standard deviation of the distance vector
+  double sum = 0, sq_sum = 0;
+  for (const float& distance : distances) {
+    sum += distance;
+    sq_sum += distance * distance;
+  }
+  *mean = sum / static_cast<double>(valid_distances);
+  double variance =
+      (sq_sum - sum * sum / static_cast<double>(valid_distances)) /
+      (static_cast<double>(valid_distances) - 1);
+  *stddev = sqrt(variance);
+
+  double distance_threshold = (*mean) + std_mul * (*stddev);
+
+  // Second pass: Classify the points on the computed distance threshold
+  for (int j = hk; j < height - hk; j++) {
+    for (int i = hk; i < width - hk; i++) {
+      int index = i + j * width;
+      if (point_cloud[index * 3 + 2] < e || outlier_mask[index] == 255) {
+        continue;
+      }
+
+      // outlier condition 2: average distance is higher than threshold
+      if (distance_threshold < distances[index]) {
+        outlier_mask[index] = 255;
+        continue;
+      }
+    }
+  }
+
+  return true;
+}
+
+inline bool StatisticalOutlierRemoval(const float* depth, int width, int height,
+                                      float fx, float fy, float cx, float cy,
+                                      unsigned char* outlier_mask,
+                                      float* distance_map, double* mean,
+                                      double* stddev, int nn_kernel_size = 5,
+                                      int valid_neighbor_num_th = -1,
+                                      double std_mul = 1.0) {
+  if (nn_kernel_size < 0 || std_mul < 0) {
+    return false;
+  }
+
+  std::vector<float> point_cloud(width * height * 3, 0.0f);
+
+  Depth2PointCloud(depth, width, height, fx, fy, cx, cy, point_cloud.data());
+
+  return StatisticalOutlierRemoval(
+      point_cloud.data(), width, height, outlier_mask, distance_map, mean,
+      stddev, nn_kernel_size, valid_neighbor_num_th, std_mul);
+}
