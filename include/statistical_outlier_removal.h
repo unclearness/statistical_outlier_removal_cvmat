@@ -13,8 +13,8 @@
 template <typename T>
 bool StatisticalOutlierRemoval(const cv::Mat_<T>& depth, float fx, float fy,
                                float cx, float cy, cv::Mat1b* outlier_mask,
-                               double* mean, double* stddev,
-                               int nn_kernel_size = 5,
+                               cv::Mat1f* distance_map, double* mean,
+                               double* stddev, int nn_kernel_size = 5,
                                int valid_neighbor_num_th = -1,
                                double std_mul = 1.0) {
   if (nn_kernel_size < 0 || std_mul < 0) {
@@ -62,15 +62,16 @@ bool StatisticalOutlierRemoval(const cv::Mat_<T>& depth, float fx, float fy,
             cy);
   });
 
-  return StatisticalOutlierRemoval(point_cloud, outlier_mask, mean, stddev,
-                                   nn_kernel_size, valid_neighbor_num_th,
-                                   std_mul);
+  return StatisticalOutlierRemoval(point_cloud, outlier_mask, distance_map,
+                                   mean, stddev, nn_kernel_size,
+                                   valid_neighbor_num_th, std_mul);
 }
 
 // http://docs.pointclouds.org/trunk/statistical__outlier__removal_8hpp_source.html
 // modify for organized point cloud
 inline bool StatisticalOutlierRemoval(const cv::Mat3f& point_cloud,
-                                      cv::Mat1b* outlier_mask, double* mean,
+                                      cv::Mat1b* outlier_mask,
+                                      cv::Mat1f* distance_map, double* mean,
                                       double* stddev, int nn_kernel_size = 5,
                                       int valid_neighbor_num_th = -1,
                                       double std_mul = 1.0) {
@@ -132,6 +133,10 @@ inline bool StatisticalOutlierRemoval(const cv::Mat3f& point_cloud,
       valid_distances++;
     }
   }
+
+  *distance_map = cv::Mat1f::zeros(point_cloud.size());
+  std::memcpy(distance_map->data, distances.data(),
+              sizeof(float) * distances.size());
 
   // Estimate the mean and the standard deviation of the distance vector
   double sum = 0, sq_sum = 0;

@@ -46,19 +46,22 @@ int main(int argc, char* argv[]) {
 
   std::string vis_depth_path = "../data/outlier_removed.png";
   std::string mask_path = "../data/outlier_mask.png";
+  std::string vis_distance_path = "../data/distance_map.png";
   cv::Mat1f processed_depth = cv::Mat1f::zeros(org_depth.size());
   double mean, stddev;
   cv::Mat1b outlier_mask;
+  cv::Mat1f distance_map;
 
   // intrinsics of Freiburg 3 RGB
   StatisticalOutlierRemoval(depth, 535.4f, 539.2f, 320.1f, 247.6f,
-                            &outlier_mask, &mean, &stddev);
+                            &outlier_mask, &distance_map, &mean, &stddev);
 
   cv::Mat1b inlier_mask(outlier_mask.size());
   cv::bitwise_not(outlier_mask, inlier_mask);
   depth.copyTo(processed_depth, inlier_mask);
 
   cv::imwrite(mask_path, outlier_mask);
+  cv::imwrite(vis_distance_path, Depth2Gray(distance_map, 0, stddev));
   cv::imwrite(vis_depth_path, Depth2Gray(processed_depth));
 
   return 0;
